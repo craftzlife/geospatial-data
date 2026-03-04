@@ -21,13 +21,13 @@ export class OvertureMapsGeospatialDataStack extends cdk.Stack {
       );
     }
 
-    // S3 Bucket — private, encrypted, versioned
+    // S3 Bucket — private, encrypted
     const bucket = new s3.Bucket(this, 'DataBucket', {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
-      versioned: true,
+      versioned: false,
     });
 
     // CloudFront Function — Basic Auth + root routing
