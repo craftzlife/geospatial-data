@@ -108,6 +108,7 @@ function handler(event) {
       destinationBucket: bucket,
       distribution,
       distributionPaths: ['/index.html'],
+      prune: false, // Do not delete existing files in the bucket, just add/update the new files
     });
 
     // Outputs
