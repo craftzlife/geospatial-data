@@ -18,4 +18,4 @@ overturemaps download --bbox=$BBOX -f geojson --type=land_use -o ./data/raw/${LO
 overturemaps download --bbox=$BBOX -f geojson --type=water -o ./data/raw/${LOCATION}_water.geojson
 
 S3_BUCKET="overturemapsgeospatialdatastack-databuckete3889a50-ybo0e2chjflg"
-aws --profile 101 s3 sync ./data/* s3://${S3_BUCKET}/ --recursive
+aws --profile 101 s3 sync ./data/ s3://${S3_BUCKET}/
