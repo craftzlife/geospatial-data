@@ -103,7 +103,7 @@ function handler(event) {
     }));
 
     // Deploy index.html to bucket
-    new s3deploy.BucketDeployment(this, 'DeployIndex', {
+    new s3deploy.BucketDeployment(this, 'DeployIndexHtmlPage', {
       sources: [s3deploy.Source.asset('./assets')],
       destinationBucket: bucket,
       distribution,

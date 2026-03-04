@@ -1,6 +1,8 @@
 BBOX="106.64085,10.84756,106.75782,10.92139"
 LOCATION="ho_chi_minh_city"
 
+mkdir -p ./data/raw
+
 overturemaps download --bbox=$BBOX -f geojson --type=building -o ./data/raw/${LOCATION}_building.geojson
 overturemaps download --bbox=$BBOX -f geojson --type=address -o ./data/raw/${LOCATION}_address.geojson
 overturemaps download --bbox=$BBOX -f geojson --type=bathymetry -o ./data/raw/${LOCATION}_bathymetry.geojson
