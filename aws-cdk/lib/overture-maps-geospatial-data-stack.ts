@@ -30,7 +30,7 @@ export class OvertureMapsGeospatialDataStack extends cdk.Stack {
       versioned: false,
     });
 
-    // CloudFront Function — Basic Auth + root routing
+    // CloudFront Function — Basic Auth + root redirect
     const encodedCredentials = Buffer.from(`${basicAuthUsername}:${basicAuthPassword}`).toString('base64');
 
     const basicAuthFunction = new cloudfront.Function(this, 'BasicAuthFunction', {
@@ -51,7 +51,13 @@ function handler(event) {
   }
 
   if (request.uri === "/" && !request.querystring["list-type"]) {
-    request.uri = "/index.html";
+    return {
+      statusCode: 302,
+      statusDescription: "Found",
+      headers: {
+        location: { value: "/index.html" }
+      }
+    };
   }
 
   return request;
@@ -60,27 +66,52 @@ function handler(event) {
       runtime: cloudfront.FunctionRuntime.JS_2_0,
     });
 
-    // Cache policy — forward S3 listing query strings
-    const cachePolicy = new cloudfront.CachePolicy(this, 'CachePolicy', {
-      queryStringBehavior: cloudfront.CacheQueryStringBehavior.allowList(
-        'list-type', 'prefix', 'delimiter', 'continuation-token',
-      ),
+    // Cache policy for static content (index.html and data files)
+    const staticCachePolicy = new cloudfront.CachePolicy(this, 'StaticContentCachePolicy', {
+      defaultTtl: cdk.Duration.days(1),
+      maxTtl: cdk.Duration.days(365),
       enableAcceptEncodingGzip: true,
       enableAcceptEncodingBrotli: true,
     });
 
+    // Origin request policy to forward S3 listing query strings
+    const listingOriginRequestPolicy = new cloudfront.OriginRequestPolicy(this, 'ListingOriginRequestPolicy', {
+      queryStringBehavior: cloudfront.OriginRequestQueryStringBehavior.allowList(
+        'list-type', 'prefix', 'delimiter', 'continuation-token',
+      ),
+    });
+
+    const s3Origin = origins.S3BucketOrigin.withOriginAccessControl(bucket);
+
+    const functionAssociations = [
+      {
+        function: basicAuthFunction,
+        eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+      },
+    ];
+
     // CloudFront Distribution with OAC
     const distribution = new cloudfront.Distribution(this, 'Distribution', {
       defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessControl(bucket),
+        origin: s3Origin,
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-        cachePolicy,
-        functionAssociations: [
-          {
-            function: basicAuthFunction,
-            eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
-          },
-        ],
+        cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+        originRequestPolicy: listingOriginRequestPolicy,
+        functionAssociations,
+      },
+      additionalBehaviors: {
+        '/index.html': {
+          origin: s3Origin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          cachePolicy: staticCachePolicy,
+          functionAssociations,
+        },
+        'data/*': {
+          origin: s3Origin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          cachePolicy: staticCachePolicy,
+          functionAssociations,
+        },
       },
     });
 
@@ -103,7 +134,7 @@ function handler(event) {
     }));
 
     // Deploy index.html to bucket
-    new s3deploy.BucketDeployment(this, 'DeployIndexHtmlPage', {
+    new s3deploy.BucketDeployment(this, 'DeployIndexHtml', {
       sources: [s3deploy.Source.asset('./assets')],
       destinationBucket: bucket,
       distribution,

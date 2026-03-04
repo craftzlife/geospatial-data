@@ -30,10 +30,14 @@ TYPES=(
 )
 
 for type in "${TYPES[@]}"; do
-  overturemaps download --bbox=$BBOX -f geojson --type=$type -o ./data/raw/${LOCATION}_${type}.geojson &>/dev/null &
+  cmd="overturemaps download --bbox=$BBOX -f geojson --type=$type -o ./data/raw/${LOCATION}_${type}.geojson"
+  echo "  $ $cmd"
+  $cmd &>/dev/null &
   spin $! "Download $type"
 done
 
 S3_BUCKET="overturemapsgeospatialdatastack-databuckete3889a50-ybo0e2chjflg"
-aws --profile 101 s3 sync ./data/ s3://${S3_BUCKET}/ &>/dev/null &
+cmd="aws --profile 101 s3 sync ./data/ s3://${S3_BUCKET}/data/"
+echo "  $ $cmd"
+$cmd &>/dev/null &
 spin $! "Upload to S3"

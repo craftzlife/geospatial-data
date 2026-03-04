@@ -34,11 +34,12 @@ describe('S3 Bucket', () => {
     });
   });
 
-  test('has versioning enabled', () => {
+  test('has versioning disabled', () => {
     const template = createStack();
-    template.hasResourceProperties('AWS::S3::Bucket', {
-      VersioningConfiguration: { Status: 'Enabled' },
-    });
+    const buckets = template.findResources('AWS::S3::Bucket');
+    for (const logicalId of Object.keys(buckets)) {
+      expect(buckets[logicalId].Properties.VersioningConfiguration).toBeUndefined();
+    }
   });
 
   test('enforces SSL via bucket policy', () => {
@@ -80,7 +81,7 @@ describe('S3 Bucket', () => {
 });
 
 describe('CloudFront Distribution', () => {
-  test('exists with HTTPS redirect', () => {
+  test('default behavior has HTTPS redirect', () => {
     const template = createStack();
     template.hasResourceProperties('AWS::CloudFront::Distribution', {
       DistributionConfig: {
@@ -91,7 +92,7 @@ describe('CloudFront Distribution', () => {
     });
   });
 
-  test('does not set defaultRootObject (handled by CF function)', () => {
+  test('does not set defaultRootObject (handled by CF function redirect)', () => {
     const template = createStack();
     const distributions = template.findResources('AWS::CloudFront::Distribution');
     for (const logicalId of Object.keys(distributions)) {
@@ -100,7 +101,7 @@ describe('CloudFront Distribution', () => {
     }
   });
 
-  test('has function association on viewer-request', () => {
+  test('default behavior has function association on viewer-request', () => {
     const template = createStack();
     template.hasResourceProperties('AWS::CloudFront::Distribution', {
       DistributionConfig: {
@@ -116,16 +117,85 @@ describe('CloudFront Distribution', () => {
     });
   });
 
-  test('uses custom cache policy with query string forwarding', () => {
+  test('default behavior uses CACHING_DISABLED policy for listing requests', () => {
+    const template = createStack();
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: {
+        DefaultCacheBehavior: Match.objectLike({
+          CachePolicyId: '4135ea2d-6df8-44a3-9df3-4b5a84be39ad',
+        }),
+      },
+    });
+  });
+
+  test('has additional behaviors for /index.html and data/*', () => {
+    const template = createStack();
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: {
+        CacheBehaviors: Match.arrayWith([
+          Match.objectLike({
+            PathPattern: '/index.html',
+            ViewerProtocolPolicy: 'redirect-to-https',
+          }),
+          Match.objectLike({
+            PathPattern: 'data/*',
+            ViewerProtocolPolicy: 'redirect-to-https',
+          }),
+        ]),
+      },
+    });
+  });
+
+  test('additional behaviors have function associations on viewer-request', () => {
+    const template = createStack();
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: {
+        CacheBehaviors: Match.arrayWith([
+          Match.objectLike({
+            PathPattern: '/index.html',
+            FunctionAssociations: [
+              {
+                EventType: 'viewer-request',
+                FunctionARN: Match.anyValue(),
+              },
+            ],
+          }),
+          Match.objectLike({
+            PathPattern: 'data/*',
+            FunctionAssociations: [
+              {
+                EventType: 'viewer-request',
+                FunctionARN: Match.anyValue(),
+              },
+            ],
+          }),
+        ]),
+      },
+    });
+  });
+});
+
+describe('Cache and Origin Request Policies', () => {
+  test('static content cache policy has compression enabled', () => {
     const template = createStack();
     template.hasResourceProperties('AWS::CloudFront::CachePolicy', {
       CachePolicyConfig: Match.objectLike({
         ParametersInCacheKeyAndForwardedToOrigin: Match.objectLike({
-          QueryStringsConfig: {
-            QueryStringBehavior: 'whitelist',
-            QueryStrings: Match.arrayWith(['list-type', 'prefix', 'delimiter', 'continuation-token']),
-          },
+          EnableAcceptEncodingGzip: true,
+          EnableAcceptEncodingBrotli: true,
         }),
+      }),
+    });
+  });
+
+  test('origin request policy forwards S3 listing query strings', () => {
+    const template = createStack();
+    template.hasResourceProperties('AWS::CloudFront::OriginRequestPolicy', {
+      OriginRequestPolicyConfig: Match.objectLike({
+        QueryStringsConfig: {
+          QueryStringBehavior: 'whitelist',
+          QueryStrings: Match.arrayWith(['list-type', 'prefix', 'delimiter', 'continuation-token']),
+        },
       }),
     });
   });
@@ -162,10 +232,13 @@ describe('CloudFront Function', () => {
     });
   });
 
-  test('contains root-to-index.html routing logic', () => {
+  test('contains root-to-index.html redirect logic', () => {
     const template = createStack();
     template.hasResourceProperties('AWS::CloudFront::Function', {
-      FunctionCode: Match.stringLikeRegexp('request\\.uri === "/" && !request\\.querystring\\["list-type"\\]'),
+      FunctionCode: Match.stringLikeRegexp('statusCode: 302'),
+    });
+    template.hasResourceProperties('AWS::CloudFront::Function', {
+      FunctionCode: Match.stringLikeRegexp('location.*"/index.html"'),
     });
   });
 
