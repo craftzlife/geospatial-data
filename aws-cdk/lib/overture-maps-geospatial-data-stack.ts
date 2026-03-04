@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib/core';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
@@ -20,6 +21,25 @@ export class OvertureMapsGeospatialDataStack extends cdk.Stack {
         'Pass it via: cdk deploy -c basicAuthPassword=YOUR_PASSWORD'
       );
     }
+
+    // Custom domain and SSL certificate (optional)
+    const domainName = this.node.tryGetContext('domainName');
+    const certificateArn = this.node.tryGetContext('certificateArn');
+
+    if (domainName && !certificateArn) {
+      throw new Error(
+        'Context variable "certificateArn" is required when "domainName" is provided.'
+      );
+    }
+    if (!domainName && certificateArn) {
+      throw new Error(
+        'Context variable "domainName" is required when "certificateArn" is provided.'
+      );
+    }
+
+    const certificate = certificateArn
+      ? acm.Certificate.fromCertificateArn(this, 'ImportedCertificate', certificateArn)
+      : undefined;
 
     // S3 Bucket — private, encrypted
     const bucket = new s3.Bucket(this, 'DataBucket', {
@@ -92,6 +112,9 @@ function handler(event) {
 
     // CloudFront Distribution with OAC
     const distribution = new cloudfront.Distribution(this, 'Distribution', {
+      ...(domainName && certificate
+        ? { domainNames: [domainName], certificate }
+        : {}),
       defaultBehavior: {
         origin: s3Origin,
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -146,5 +169,8 @@ function handler(event) {
     new cdk.CfnOutput(this, 'BucketName', { value: bucket.bucketName });
     new cdk.CfnOutput(this, 'DistributionDomainName', { value: distribution.distributionDomainName });
     new cdk.CfnOutput(this, 'DistributionId', { value: distribution.distributionId });
+    if (domainName) {
+      new cdk.CfnOutput(this, 'CustomDomainName', { value: domainName });
+    }
   }
 }

@@ -275,6 +275,81 @@ describe('Context validation', () => {
       new OvertureMapsGeospatialDataStack(app, 'TestStack');
     }).toThrow(/Missing required context variable "basicAuthPassword"/);
   });
+
+  test('throws error when domainName is provided without certificateArn', () => {
+    const app = new cdk.App({
+      context: { basicAuthPassword: 'test-password', domainName: 'data.example.com' },
+    });
+    expect(() => {
+      new OvertureMapsGeospatialDataStack(app, 'TestStack');
+    }).toThrow(/Context variable "certificateArn" is required when "domainName" is provided/);
+  });
+
+  test('throws error when certificateArn is provided without domainName', () => {
+    const app = new cdk.App({
+      context: {
+        basicAuthPassword: 'test-password',
+        certificateArn: 'arn:aws:acm:us-east-1:123456789012:certificate/abc-123',
+      },
+    });
+    expect(() => {
+      new OvertureMapsGeospatialDataStack(app, 'TestStack');
+    }).toThrow(/Context variable "domainName" is required when "certificateArn" is provided/);
+  });
+});
+
+describe('Custom domain and SSL', () => {
+  const domainContext = {
+    domainName: 'data.example.com',
+    certificateArn: 'arn:aws:acm:us-east-1:123456789012:certificate/abc-123',
+  };
+
+  test('distribution has aliases when domainName is configured', () => {
+    const template = createStack(domainContext);
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        Aliases: ['data.example.com'],
+      }),
+    });
+  });
+
+  test('distribution has ACM certificate with SNI and TLSv1.2', () => {
+    const template = createStack(domainContext);
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        ViewerCertificate: Match.objectLike({
+          AcmCertificateArn: 'arn:aws:acm:us-east-1:123456789012:certificate/abc-123',
+          SslSupportMethod: 'sni-only',
+          MinimumProtocolVersion: 'TLSv1.2_2021',
+        }),
+      }),
+    });
+  });
+
+  test('no aliases or certificate when context is omitted', () => {
+    const template = createStack();
+    const distributions = template.findResources('AWS::CloudFront::Distribution');
+    for (const logicalId of Object.keys(distributions)) {
+      const config = distributions[logicalId].Properties.DistributionConfig;
+      expect(config.Aliases).toBeUndefined();
+      expect(config.ViewerCertificate).toBeUndefined();
+    }
+  });
+
+  test('existing behaviors unchanged when domain is configured', () => {
+    const template = createStack(domainContext);
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: {
+        DefaultCacheBehavior: Match.objectLike({
+          ViewerProtocolPolicy: 'redirect-to-https',
+        }),
+        CacheBehaviors: Match.arrayWith([
+          Match.objectLike({ PathPattern: '/index.html' }),
+          Match.objectLike({ PathPattern: 'data/*' }),
+        ]),
+      },
+    });
+  });
 });
 
 describe('Stack outputs', () => {
@@ -283,5 +358,21 @@ describe('Stack outputs', () => {
     template.hasOutput('BucketName', {});
     template.hasOutput('DistributionDomainName', {});
     template.hasOutput('DistributionId', {});
+  });
+
+  test('exports CustomDomainName when domain is configured', () => {
+    const template = createStack({
+      domainName: 'data.example.com',
+      certificateArn: 'arn:aws:acm:us-east-1:123456789012:certificate/abc-123',
+    });
+    template.hasOutput('CustomDomainName', {
+      Value: 'data.example.com',
+    });
+  });
+
+  test('does not export CustomDomainName when domain is not configured', () => {
+    const template = createStack();
+    const outputs = template.findOutputs('CustomDomainName');
+    expect(Object.keys(outputs)).toHaveLength(0);
   });
 });
