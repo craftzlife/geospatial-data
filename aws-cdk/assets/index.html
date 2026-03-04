@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Overture Maps Geospatial Data</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+      color: #1f2328; background: #fff; line-height: 1.5; font-size: 14px;
+    }
+    .container { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+    header { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid #d1d9e0; }
+    header h1 { font-size: 20px; font-weight: 600; }
+    header p { color: #656d76; font-size: 13px; margin-top: 4px; }
+
+    .tree { border: 1px solid #d1d9e0; border-radius: 6px; overflow: hidden; }
+    .tree-row {
+      display: flex; align-items: center; padding: 8px 16px; gap: 8px;
+      border-bottom: 1px solid #d1d9e0; cursor: default; text-decoration: none; color: inherit;
+    }
+    .tree-row:last-child { border-bottom: none; }
+    .tree-row:hover { background: #f6f8fa; }
+    .tree-row.folder { cursor: pointer; }
+    .tree-row.file { cursor: pointer; }
+    .tree-row .icon { width: 16px; text-align: center; flex-shrink: 0; }
+    .tree-row .icon.folder-icon { color: #54aeff; }
+    .tree-row .icon.file-icon { color: #656d76; }
+    .tree-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tree-row.file .name { color: #0969da; }
+    .tree-row .meta { color: #656d76; font-size: 12px; white-space: nowrap; flex-shrink: 0; display: flex; gap: 16px; }
+    .tree-row .meta .size { display: inline-block; min-width: 70px; text-align: right; }
+    .tree-row .meta .date { display: inline-block; min-width: 90px; text-align: right; }
+    .tree-row .arrow {
+      width: 16px; text-align: center; flex-shrink: 0; font-size: 12px; color: #656d76;
+      transition: transform 0.15s ease;
+    }
+    .tree-row .arrow.expanded { transform: rotate(90deg); }
+
+    .children { padding-left: 24px; }
+    .loading-row, .empty-row, .error-row {
+      padding: 8px 16px 8px 40px; color: #656d76; font-size: 13px; font-style: italic;
+      border-bottom: 1px solid #d1d9e0;
+    }
+    .loading-row:last-child, .empty-row:last-child, .error-row:last-child { border-bottom: none; }
+    .error-row { color: #cf222e; font-style: normal; }
+    .error-row button {
+      margin-left: 8px; padding: 2px 8px; font-size: 12px; border: 1px solid #d1d9e0;
+      border-radius: 4px; background: #fff; cursor: pointer; color: #1f2328;
+    }
+    .error-row button:hover { background: #f6f8fa; }
+
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #d1d9e0;
+      border-top-color: #656d76; border-radius: 50%; animation: spin 0.6s linear infinite;
+      vertical-align: middle; margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .root-loading { text-align: center; padding: 48px 16px; color: #656d76; }
+    .root-error { text-align: center; padding: 48px 16px; color: #cf222e; }
+    .root-error button {
+      display: inline-block; margin-top: 8px; padding: 4px 12px; font-size: 13px;
+      border: 1px solid #d1d9e0; border-radius: 4px; background: #fff; cursor: pointer; color: #1f2328;
+    }
+    .root-empty { text-align: center; padding: 48px 16px; color: #656d76; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Overture Maps Geospatial Data</h1>
+      <p>S3 Bucket Browser &mdash; click folders to expand, click files to download</p>
+    </header>
+    <div id="root"></div>
+  </div>
+  <script>
+    var HIDDEN_FILES = new Set(['index.html']);
+
+    function clearElement(el) {
+      while (el.firstChild) el.removeChild(el.firstChild);
+    }
+
+    async function fetchListing(prefix, continuationToken) {
+      var params = new URLSearchParams({
+        'list-type': '2',
+        'delimiter': '/',
+        'prefix': prefix,
+      });
+      if (continuationToken) params.set('continuation-token', continuationToken);
+
+      var resp = await fetch('/?' + params.toString());
+      if (!resp.ok) throw new Error('Failed to list objects (HTTP ' + resp.status + ')');
+
+      var text = await resp.text();
+      var xml = new DOMParser().parseFromString(text, 'application/xml');
+
+      var folders = [];
+      var cpElements = xml.getElementsByTagName('CommonPrefixes');
+      for (var i = 0; i < cpElements.length; i++) {
+        folders.push(cpElements[i].getElementsByTagName('Prefix')[0].textContent);
+      }
+
+      var files = [];
+      var cElements = xml.getElementsByTagName('Contents');
+      for (var j = 0; j < cElements.length; j++) {
+        var key = cElements[j].getElementsByTagName('Key')[0].textContent;
+        var size = parseInt(cElements[j].getElementsByTagName('Size')[0].textContent, 10);
+        var lastModified = cElements[j].getElementsByTagName('LastModified')[0].textContent;
+        if (key !== prefix && !HIDDEN_FILES.has(key)) {
+          files.push({ key: key, size: size, lastModified: lastModified });
+        }
+      }
+
+      var isTruncatedEl = xml.getElementsByTagName('IsTruncated')[0];
+      var isTruncated = isTruncatedEl && isTruncatedEl.textContent === 'true';
+      var nextTokenEl = xml.getElementsByTagName('NextContinuationToken')[0];
+      var nextToken = nextTokenEl ? nextTokenEl.textContent : null;
+
+      return { folders: folders, files: files, isTruncated: isTruncated, nextToken: nextToken };
+    }
+
+    async function listAllObjects(prefix) {
+      var allFolders = [];
+      var allFiles = [];
+      var token = null;
+
+      do {
+        var result = await fetchListing(prefix, token);
+        allFolders = allFolders.concat(result.folders);
+        allFiles = allFiles.concat(result.files);
+        token = result.isTruncated ? result.nextToken : null;
+      } while (token);
+
+      allFolders.sort();
+      allFiles.sort(function(a, b) { return a.key.localeCompare(b.key); });
+      return { folders: allFolders, files: allFiles };
+    }
+
+    function displayName(key, prefix) {
+      var name = key.slice(prefix.length);
+      return name.endsWith('/') ? name.slice(0, -1) : name;
+    }
+
+    function formatSize(bytes) {
+      if (bytes === 0) return '0 B';
+      var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      var i = Math.floor(Math.log(bytes) / Math.log(1024));
+      return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+    }
+
+    function formatDate(isoString) {
+      var d = new Date(isoString);
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function createFolderRow(folderPrefix, parentPrefix) {
+      var row = document.createElement('div');
+      row.className = 'tree-row folder';
+
+      var arrow = document.createElement('span');
+      arrow.className = 'arrow';
+      arrow.textContent = '\u25B6';
+
+      var icon = document.createElement('span');
+      icon.className = 'icon folder-icon';
+      icon.textContent = '\uD83D\uDCC1';
+
+      var name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = displayName(folderPrefix, parentPrefix);
+
+      row.append(arrow, icon, name);
+
+      var childrenContainer = document.createElement('div');
+      childrenContainer.className = 'children';
+      childrenContainer.style.display = 'none';
+
+      var loaded = false;
+
+      row.addEventListener('click', async function() {
+        var isExpanded = childrenContainer.style.display !== 'none';
+        if (isExpanded) {
+          childrenContainer.style.display = 'none';
+          arrow.classList.remove('expanded');
+          return;
+        }
+
+        childrenContainer.style.display = '';
+        arrow.classList.add('expanded');
+
+        if (!loaded) {
+          await loadChildren(childrenContainer, folderPrefix);
+          loaded = true;
+        }
+      });
+
+      var wrapper = document.createDocumentFragment();
+      wrapper.append(row, childrenContainer);
+      return wrapper;
+    }
+
+    function createFileRow(file, prefix) {
+      var row = document.createElement('a');
+      row.className = 'tree-row file';
+      row.href = '/' + encodeURI(file.key);
+      row.target = '_blank';
+      row.rel = 'noopener';
+
+      var spacer = document.createElement('span');
+      spacer.className = 'arrow';
+
+      var icon = document.createElement('span');
+      icon.className = 'icon file-icon';
+      icon.textContent = '\uD83D\uDCC4';
+
+      var name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = displayName(file.key, prefix);
+
+      var meta = document.createElement('span');
+      meta.className = 'meta';
+
+      var sizeSpan = document.createElement('span');
+      sizeSpan.className = 'size';
+      sizeSpan.textContent = formatSize(file.size);
+
+      var dateSpan = document.createElement('span');
+      dateSpan.className = 'date';
+      dateSpan.textContent = formatDate(file.lastModified);
+
+      meta.append(sizeSpan, dateSpan);
+      row.append(spacer, icon, name, meta);
+      return row;
+    }
+
+    function createLoadingRow() {
+      var el = document.createElement('div');
+      el.className = 'loading-row';
+      var spinner = document.createElement('span');
+      spinner.className = 'spinner';
+      el.append(spinner, document.createTextNode('Loading\u2026'));
+      return el;
+    }
+
+    async function loadChildren(container, prefix) {
+      var loading = createLoadingRow();
+      container.appendChild(loading);
+
+      try {
+        var result = await listAllObjects(prefix);
+        container.removeChild(loading);
+
+        if (result.folders.length === 0 && result.files.length === 0) {
+          var empty = document.createElement('div');
+          empty.className = 'empty-row';
+          empty.textContent = '(empty)';
+          container.appendChild(empty);
+          return;
+        }
+
+        for (var i = 0; i < result.folders.length; i++) {
+          container.appendChild(createFolderRow(result.folders[i], prefix));
+        }
+        for (var j = 0; j < result.files.length; j++) {
+          container.appendChild(createFileRow(result.files[j], prefix));
+        }
+      } catch (err) {
+        if (loading.parentNode) container.removeChild(loading);
+        var errorRow = document.createElement('div');
+        errorRow.className = 'error-row';
+        errorRow.textContent = 'Failed to load: ' + err.message + ' ';
+        var retry = document.createElement('button');
+        retry.textContent = 'Retry';
+        retry.addEventListener('click', function(e) {
+          e.stopPropagation();
+          clearElement(container);
+          loadChildren(container, prefix);
+        });
+        errorRow.appendChild(retry);
+        container.appendChild(errorRow);
+      }
+    }
+
+    async function init() {
+      var root = document.getElementById('root');
+      clearElement(root);
+
+      var loadingDiv = document.createElement('div');
+      loadingDiv.className = 'root-loading';
+      var spinner = document.createElement('span');
+      spinner.className = 'spinner';
+      loadingDiv.append(spinner, document.createTextNode(' Loading bucket contents\u2026'));
+      root.appendChild(loadingDiv);
+
+      try {
+        var result = await listAllObjects('');
+        clearElement(root);
+
+        if (result.folders.length === 0 && result.files.length === 0) {
+          var emptyDiv = document.createElement('div');
+          emptyDiv.className = 'root-empty';
+          emptyDiv.textContent = 'This bucket is empty.';
+          root.appendChild(emptyDiv);
+          return;
+        }
+
+        var tree = document.createElement('div');
+        tree.className = 'tree';
+        for (var i = 0; i < result.folders.length; i++) {
+          tree.appendChild(createFolderRow(result.folders[i], ''));
+        }
+        for (var j = 0; j < result.files.length; j++) {
+          tree.appendChild(createFileRow(result.files[j], ''));
+        }
+        root.appendChild(tree);
+      } catch (err) {
+        clearElement(root);
+        var errorDiv = document.createElement('div');
+        errorDiv.className = 'root-error';
+        errorDiv.textContent = 'Failed to load bucket contents: ' + err.message;
+        var br = document.createElement('br');
+        var retry = document.createElement('button');
+        retry.textContent = 'Retry';
+        retry.addEventListener('click', init);
+        errorDiv.append(br, retry);
+        root.appendChild(errorDiv);
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
