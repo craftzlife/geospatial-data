@@ -1,12 +1,12 @@
 import * as cdk from 'aws-cdk-lib/core';
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import { OvertureMapsGeospatialDataStack } from '../lib/overture-maps-geospatial-data-stack';
+import { GeospatialDataStack } from '../lib/overture-maps-geospatial-data-stack';
 
 function createStack(context: Record<string, string> = {}): Template {
   const app = new cdk.App({
     context: { basicAuthPassword: 'test-password', ...context },
   });
-  const stack = new OvertureMapsGeospatialDataStack(app, 'TestStack');
+  const stack = new GeospatialDataStack(app, 'TestStack');
   return Template.fromStack(stack);
 }
 
@@ -272,7 +272,7 @@ describe('Context validation', () => {
   test('throws error when basicAuthPassword is not provided', () => {
     const app = new cdk.App();
     expect(() => {
-      new OvertureMapsGeospatialDataStack(app, 'TestStack');
+      new GeospatialDataStack(app, 'TestStack');
     }).toThrow(/Missing required context variable "basicAuthPassword"/);
   });
 
@@ -281,7 +281,7 @@ describe('Context validation', () => {
       context: { basicAuthPassword: 'test-password', domainName: 'data.example.com' },
     });
     expect(() => {
-      new OvertureMapsGeospatialDataStack(app, 'TestStack');
+      new GeospatialDataStack(app, 'TestStack');
     }).toThrow(/Context variable "certificateArn" is required when "domainName" is provided/);
   });
 
@@ -293,7 +293,7 @@ describe('Context validation', () => {
       },
     });
     expect(() => {
-      new OvertureMapsGeospatialDataStack(app, 'TestStack');
+      new GeospatialDataStack(app, 'TestStack');
     }).toThrow(/Context variable "domainName" is required when "certificateArn" is provided/);
   });
 });

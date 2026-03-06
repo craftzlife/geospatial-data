@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib/core';
-import { OvertureMapsGeospatialDataStack } from '../lib/overture-maps-geospatial-data-stack';
+import { GeospatialDataStack } from '../lib/geospatial-data-stack';
 
 const app = new cdk.App();
-new OvertureMapsGeospatialDataStack(app, 'OvertureMapsGeospatialDataStack', {
+new GeospatialDataStack(app, 'GeospatialDataStack', {
   /* If you don't specify 'env', this stack will be environment-agnostic.
    * Account/Region-dependent features and context lookups will not work,
    * but a single synthesized template can be deployed anywhere. */

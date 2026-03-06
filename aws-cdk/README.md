@@ -1,6 +1,6 @@
-# Overture Maps Geospatial Data — AWS CDK
+# Geospatial Data — AWS CDK
 
-Infrastructure-as-Code for serving [Overture Maps](https://overturemaps.org/) geospatial data via CloudFront + S3, protected by HTTP Basic Auth.
+Infrastructure-as-Code for serving geospatial data via CloudFront + S3, protected by HTTP Basic Auth.
 
 ## Architecture
 

@@ -36,8 +36,8 @@ for type in "${TYPES[@]}"; do
   spin $! "Download $type"
 done
 
-S3_BUCKET="overturemapsgeospatialdatastack-databuckete3889a50-ybo0e2chjflg"
-cmd="aws --profile 101 s3 sync ./data/ s3://${S3_BUCKET}/data/"
+S3_BUCKET="YOUR_S3_BUCKET_NAME"
+cmd="aws s3 sync ./data/ s3://${S3_BUCKET}/data/"
 echo "  $ $cmd"
 $cmd &>/dev/null &
 spin $! "Upload to S3"
