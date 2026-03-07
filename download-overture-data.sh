@@ -1,4 +1,4 @@
-BBOX="106.64085,10.84756,106.75782,10.92139"
+BBOX="106,10,107,11"
 LOCATION="ho_chi_minh_city"
 
 mkdir -p ./data/raw
@@ -30,14 +30,14 @@ TYPES=(
 )
 
 for type in "${TYPES[@]}"; do
-  cmd="overturemaps download --bbox=$BBOX -f geojson --type=$type -o ./data/raw/${LOCATION}_${type}.geojson"
+  cmd="overturemaps download --bbox=$BBOX -f geojson --type=$type -o ./data/raw/overture-maps/N10_00_E106_00_${type}.geojson"
   echo "  $ $cmd"
   $cmd &>/dev/null &
   spin $! "Download $type"
 done
 
-S3_BUCKET="YOUR_S3_BUCKET_NAME"
-cmd="aws s3 sync ./data/ s3://${S3_BUCKET}/data/"
+S3_BUCKET="geospatialdatastack-databuckete3889a50-jkve0kjmmfvd"
+cmd="aws s3 sync ./data/raw/ s3://${S3_BUCKET}/raw/"
 echo "  $ $cmd"
 $cmd &>/dev/null &
 spin $! "Upload to S3"
